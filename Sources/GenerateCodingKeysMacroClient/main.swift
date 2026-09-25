@@ -1,8 +1,18 @@
+import Foundation
 import GenerateCodingKeysMacro
 
-let a = 17
-let b = 25
+@GenerateCodingKeys
+struct Article: Codable {
+    let articleId: Int
+    let articleTitle: String
+    let authorName: String
+    let publishedDate: String
+}
 
-let (result, code) = #stringify(a + b)
-
-print("The value \(result) was produced by the code \"\(code)\"")
+@GenerateCodingKeys
+struct Comment: Codable {
+    let commentId: Int
+    let articleId: Int
+    let commenterName: String
+    let createdAt: String
+}
