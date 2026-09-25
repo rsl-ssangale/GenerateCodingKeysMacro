@@ -3,31 +3,91 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// Implementation of the `stringify` macro, which takes an expression
-/// of any type and produces a tuple containing the value of that expression
-/// and the source code that produced the value. For example
-///
-///     #stringify(x + y)
-///
-///  will expand to
-///
-///     (x + y, "x + y")
-public struct StringifyMacro: ExpressionMacro {
+enum GenerateCodingKeysError: Error, CustomStringConvertible {
+    case onlyStructSupported
+
+    var description: String {
+        switch self {
+        case .onlyStructSupported:
+            return "@GenerateCodingKeys can only be applied to a struct."
+        }
+    }
+}
+
+public struct GenerateCodingKeysMacro: MemberMacro {
+
     public static func expansion(
-        of node: some FreestandingMacroExpansionSyntax,
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
         in context: some MacroExpansionContext
-    ) -> ExprSyntax {
-        guard let argument = node.arguments.first?.expression else {
-            fatalError("compiler bug: the macro does not have any arguments")
+    ) throws -> [DeclSyntax] {
+
+        guard let structDeclaration =
+            declaration.as(StructDeclSyntax.self)
+        else {
+            throw GenerateCodingKeysError.onlyStructSupported
         }
 
-        return "(\(argument), \(literal: argument.description))"
+        let properties = structDeclaration.memberBlock.members.compactMap {
+            member -> String? in
+
+            guard let variable =
+                member.decl.as(VariableDeclSyntax.self)
+            else {
+                return nil
+            }
+
+            guard variable.bindings.count == 1,
+                  let binding = variable.bindings.first,
+                  binding.accessorBlock == nil,
+                  let identifier =
+                    binding.pattern.as(IdentifierPatternSyntax.self)
+            else {
+                return nil
+            }
+
+            return identifier.identifier.text
+        }
+
+        let codingKeyCases = properties.map { propertyName in
+            let codingKeyName = snakeCase(propertyName)
+
+            return "case \(propertyName) = \"\(codingKeyName)\""
+        }
+        .joined(separator: "\n")
+
+        let codingKeys: DeclSyntax = """
+        enum CodingKeys: String, CodingKey {
+            \(raw: codingKeyCases)
+        }
+        """
+
+        return [codingKeys]
+    }
+
+    private static func snakeCase(_ name: String) -> String {
+        var result = ""
+
+        for character in name {
+            if character.isUppercase {
+                if !result.isEmpty {
+                    result.append("_")
+                }
+
+                result.append(contentsOf: character.lowercased())
+            } else {
+                result.append(character)
+            }
+        }
+
+        return result
     }
 }
 
 @main
 struct GenerateCodingKeysMacroPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
-        StringifyMacro.self,
+        GenerateCodingKeysMacro.self,
     ]
 }
